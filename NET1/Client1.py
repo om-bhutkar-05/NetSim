@@ -1,9 +1,6 @@
 import socket
 import threading
 import time
-import socket
-import threading
-import time
 
 # Constants
 ROUTER_IP = "192.168.1.1"
@@ -12,6 +9,10 @@ CLIENT_EMAIL = "client1@example.com"
 CLIENT_IP = "192.168.1.2"
 CLIENT_PORT = 10001
 INBOX_FILE = "inbox1.txt"
+DNS_RESOLVER_IP = "192.168.3.1"  # IP of the DNS resolver
+DNS_RESOLVER_PORT = 11006        # Port for the DNS resolver
+VALID_WEBSITES = ["time.com", "date.in"]  # Predefined websites
+DNS_RESOLVER_TIMEOUT = 5  # Timeout in seconds for DNS resolution
 
 def calculate_checksum(data):
     return sum(ord(char) for char in data) % 256
@@ -27,7 +28,6 @@ def create_packets(message, subject, source_ip, dest_email):
         packet = f'PACKET|"{dest_email}"|"{source_ip}"|{i}|"{subject}"|"{line}"|{checksum}'
         packets.append(packet)
     return packets
-
 
 def send_mail(client_socket):
     print("\nSend Mail")
@@ -80,7 +80,6 @@ def listen_for_mail(client_socket):
             print(f"Error receiving mail: {e}")
             break
 
-        
 def view_inbox():
     print("\n--- Inbox ---")
     try:
@@ -94,6 +93,40 @@ def view_inbox():
         print("No inbox found! You have no messages yet.")
     print("--- End of Inbox ---")
 
+def resolve_website(website_name):
+    """Send a website name to the DNS resolver and get the resolved IP using TCP."""
+    if website_name not in VALID_WEBSITES:
+        print("Invalid website. Only 'time.com' and 'date.in' are allowed.")
+        return None
+
+    try:
+        # Use a TCP socket instead of UDP
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as dns_socket:
+            dns_socket.settimeout(DNS_RESOLVER_TIMEOUT)  # Set timeout for the resolver socket
+            dns_socket.connect((DNS_RESOLVER_IP, DNS_RESOLVER_PORT))  # TCP connection to the resolver
+            dns_socket.send(website_name.encode())  # Send the website name
+            resolved_ip = dns_socket.recv(1024).decode()  # Receive the resolved IP
+            print(f"Resolved IP for {website_name}: {resolved_ip}")
+            return resolved_ip
+    except socket.timeout:
+        print(f"Error: DNS resolver timed out while resolving {website_name}.")
+        return None
+    except Exception as e:
+        print(f"Error resolving website {website_name}: {e}")
+        return None
+
+
+def connect_to_website(ip):
+    """Connect to the resolved website IP and receive a response."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as web_socket:
+            web_socket.connect((ip, 8080))  # Assuming port 8080 for web servers
+            response = web_socket.recv(1024).decode()
+        return response
+    except Exception as e:
+        print(f"Error connecting to website: {e}")
+        return None
+
 def client_interface():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.bind((CLIENT_IP, CLIENT_PORT))
@@ -106,14 +139,25 @@ def client_interface():
         print("\nWelcome to the Email Client")
         print("1) Send Mail")
         print("2) View Inbox")
-        print("3) Quit")
-        choice = input("Choose an option (1/2/3): ")
+        print("3) Visit Website (time.com / date.in)")
+        print("4) Quit")
+        choice = input("Choose an option (1/2/3/4): ")
 
         if choice == '1':
             send_mail(client_socket)
         elif choice == '2':
             view_inbox()
         elif choice == '3':
+            website_name = input("Enter website name (time.in or date.in): ")
+            ip = resolve_website(website_name)
+            if ip:
+                print(f"Resolved IP for {website_name}: {ip}")
+                response = connect_to_website(ip)
+                if response:
+                    print(f"Website Response: {response}")
+                else:
+                    print("Failed to receive a response from the website.")
+        elif choice == '4':
             print("\nGoodbye!")
             client_socket.send(b"QUIT")
             client_socket.close()
