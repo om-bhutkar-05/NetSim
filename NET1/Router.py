@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 
 # Constants
 ROUTER_IP = "192.168.1.1"
@@ -8,38 +9,43 @@ MAIL_IPS_FILE = "mail_ips.txt"
 
 # Active client connections
 client_connections = {}
+server_socket = None
+
+def cleanup():
+    """Cleanup function to close all client connections and the server socket."""
+    print("Cleaning up...")
+    for client_socket in client_connections.values():
+        try:
+            client_socket.close()
+        except Exception as e:
+            print(f"Error closing client socket: {e}")
+    if server_socket:
+        try:
+            server_socket.close()
+        except Exception as e:
+            print(f"Error closing server socket: {e}")
 
 def handle_client(client_socket, client_address):
     try:
-        # Receive client email and IP
         client_data = client_socket.recv(1024).decode('utf-8').strip()
         client_email, client_ip = client_data.split(',')
-        
         print(f"Connected client {client_email} with IP {client_ip}")
-        client_connections[client_ip] = client_socket  # Store active connections
+        client_connections[client_ip] = client_socket
 
-        # Save client email and IP to file
         with open(MAIL_IPS_FILE, "a") as file:
             file.write(f"{client_email},{client_ip}\n")
 
         while True:
-            # Receive messages from the client
             message = client_socket.recv(1024).decode('utf-8').strip()
             if message == "QUIT":
-                print(f"Client {client_email} with IP {client_ip} disconnected.")
+                print(f"Client {client_email} disconnected.")
                 break
 
-            print(f"Received from {client_ip}: {message}")
-            if message.startswith("MAIL"):
-                # Extract recipient and message
-                _, recipient_email, mail_content = message.split('|', 2)
-                route_mail(client_socket, recipient_email, mail_content)
-            else:
-                client_socket.send(f"Message received: {message}".encode())
+            if message.startswith("PACKET"):
+                forward_packet(message)
     except Exception as e:
         print(f"Error with client {client_address}: {e}")
     finally:
-        # Remove client from connections and file on disconnection
         client_connections.pop(client_ip, None)
         with open(MAIL_IPS_FILE, "r") as file:
             lines = file.readlines()
@@ -49,28 +55,32 @@ def handle_client(client_socket, client_address):
                     file.write(line)
         client_socket.close()
 
-def route_mail(sender_socket, recipient_email, mail_content):
+def forward_packet(packet):
     try:
-        # Find the recipient's IP
+        _, dest_email, content = packet.split('|', 2)
         recipient_ip = None
+        print(f"Routing packet to: {dest_email}")
         with open(MAIL_IPS_FILE, "r") as file:
             for line in file:
-                email, ip = line.strip().split(',')
-                if email == recipient_email:
-                    recipient_ip = ip
-                    break
-
+                if line.strip():
+                    email, ip = line.strip().split(',')
+                    print(email,dest_email)
+                    if email[0:19] == dest_email[1:20]:
+                        recipient_ip = ip
+                        break
+        
         if recipient_ip and recipient_ip in client_connections:
-            recipient_socket = client_connections[recipient_ip]
-            recipient_socket.send(f"MAIL|{mail_content}".encode('utf-8'))
-            sender_socket.send(f"Mail successfully routed to {recipient_email}".encode('utf-8'))
+            print(f"Forwarding packet to {recipient_ip}...")
+            time.sleep(2.5)  # Simulating the forwarding delay
+            client_connections[recipient_ip].send(packet.encode('utf-8'))
+            print(f"Packet forwarded to {dest_email}")
         else:
-            sender_socket.send(f"Recipient {recipient_email} not found or offline.".encode('utf-8'))
+            print(f"Recipient {dest_email} not found or offline.")
     except Exception as e:
-        print(f"Error routing mail: {e}")
-        sender_socket.send("Error routing mail.".encode('utf-8'))
+        print(f"Error forwarding packet: {e}")
 
 def start_router():
+    global server_socket
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((ROUTER_IP, ROUTER_PORT))
     server_socket.listen(5)
@@ -78,7 +88,6 @@ def start_router():
 
     while True:
         client_socket, client_address = server_socket.accept()
-        print(f"New client connected from {client_address}")
         threading.Thread(target=handle_client, args=(client_socket, client_address)).start()
 
 if __name__ == "__main__":
