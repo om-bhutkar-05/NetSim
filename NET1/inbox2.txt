@@ -1,2 +1,12 @@
-# 1: Subject: hu
-ofsj oufuoafa j ofaof wfoij
+Message 1:
+Subject: 1
+red
+green
+blue
+FIN
+Message 2:
+Subject: hi
+A
+B
+C
+FIN
